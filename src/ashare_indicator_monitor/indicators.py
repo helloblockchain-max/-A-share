@@ -345,8 +345,13 @@ def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]
     module = ModuleScore("leverage_turnover", "杠杆与成交", WEIGHTS["leverage_turnover"], round(raw, 2), round(raw * WEIGHTS["leverage_turnover"], 2), signals)
     margin_chart = margin.tail(360).copy()
     margin_chart["日期"] = margin_chart["日期"].astype(str)
-    margin_chart["融资融券余额_亿元"] = pd.to_numeric(margin_chart["融资融券余额"], errors="coerce") / 1e8
-    margin_chart["融资买入额_亿元"] = pd.to_numeric(margin_chart["融资买入额"], errors="coerce") / 1e8
+    margin_chart["融资余额_亿元"] = pd.to_numeric(margin_chart["融资余额"], errors="coerce") / 1e8
+    if float_market_cap:
+        # 当前缺少全A历史流通市值序列，历史曲线先用“当前全A流通市值”作静态分母。
+        # 这能展示融资余额自身变化导致的杠杆拥挤度变化，但不能解释历史流通市值扩张/收缩。
+        margin_chart["融资余额流通市值占比"] = pd.to_numeric(margin_chart["融资余额"], errors="coerce") / float_market_cap * 100
+    else:
+        margin_chart["融资余额流通市值占比"] = np.nan
     return module, {
         "margin_balance": safe_float(margin_balance.iloc[-1]),
         "financing_balance": latest_financing_balance,
@@ -356,7 +361,7 @@ def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]
         "financing_buy_ratio": buy_ratio,
         "market_amount_used": latest_amount,
         "market_amount_source": amount_source,
-        "margin_chart": margin_chart[["日期", "融资融券余额_亿元", "融资买入额_亿元"]].rename(columns={"日期": "date"}).to_dict("records"),
+        "margin_chart": margin_chart[["日期", "融资余额流通市值占比", "融资余额_亿元"]].rename(columns={"日期": "date"}).to_dict("records"),
     }
 
 

@@ -198,8 +198,7 @@ function renderCharts(charts) {
     { key: "erp", color: "#fdb022", width: 2.5 },
   ]);
   drawLineChart("marginChart", charts.margin, [
-    { key: "融资融券余额_亿元", color: "#5ca9ff", width: 2.5 },
-    { key: "融资买入额_亿元", color: "#f97066", width: 1.5 },
+    { key: "融资余额流通市值占比", color: "#f97066", width: 2.5 },
   ]);
 }
 
