@@ -381,6 +381,12 @@ class PublicDataProvider:
         """东方财富全 A 实时快照，用于市场宽度与成交。"""
 
         url = "https://82.push2.eastmoney.com/api/qt/clist/get"
+        endpoint_urls = [
+            "https://82.push2.eastmoney.com/api/qt/clist/get",
+            "https://48.push2.eastmoney.com/api/qt/clist/get",
+            "https://33.push2.eastmoney.com/api/qt/clist/get",
+            "https://push2.eastmoney.com/api/qt/clist/get",
+        ]
 
         def fetcher() -> pd.DataFrame:
             fields = (
@@ -390,8 +396,13 @@ class PublicDataProvider:
             fs = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"
             rows: list[dict] = []
             page = 1
-            page_size = 500
+            started_at = time.time()
+            # 东方财富 clist 接口实测单页上限为 100；传 500 时仍只回 100，
+            # 会导致分页提前停止，进而把全市场成交额低估为首页成交额。
+            page_size = 100
             while True:
+                if time.time() - started_at > 10:
+                    raise RuntimeError("东方财富全A快照分页超过10秒时间预算")
                 params = {
                     "pn": str(page),
                     "pz": str(page_size),
@@ -404,15 +415,25 @@ class PublicDataProvider:
                     "fs": fs,
                     "fields": fields,
                 }
-                resp = self.session.get(url, params=params, timeout=15)
-                resp.raise_for_status()
-                payload = resp.json()
+                last_error: Exception | None = None
+                payload: dict | None = None
+                for endpoint in endpoint_urls:
+                    try:
+                        resp = self.session.get(endpoint, params=params, timeout=5)
+                        resp.raise_for_status()
+                        payload = resp.json()
+                        break
+                    except Exception as exc:  # noqa: BLE001 - 多 endpoint 探测，记录最后错误
+                        last_error = exc
+                        time.sleep(0.05)
+                if payload is None:
+                    raise RuntimeError(f"东方财富全A快照第 {page} 页请求失败：{last_error}")
                 diff = ((payload.get("data") or {}).get("diff") or [])
                 rows.extend(diff)
                 if len(diff) < page_size:
                     break
                 page += 1
-                if page > 20:
+                if page > 80:
                     break
                 time.sleep(0.12)
             if not rows:
@@ -439,14 +460,32 @@ class PublicDataProvider:
             df["date"] = date.today().isoformat()
             return df
 
-        return self._with_cache(
-            key="a_share_snapshot_em",
-            fetcher=fetcher,
-            source_name="东方财富全A实时快照",
-            url=url,
-            as_of_column="date",
-            ttl_seconds=300,
-        )
+        try:
+            return self._with_cache(
+                # v2：修复分页上限，避免沿用旧的 100 行缓存。
+                key="a_share_snapshot_em_v2",
+                fetcher=fetcher,
+                source_name="东方财富全A实时快照",
+                url=url,
+                as_of_column="date",
+                ttl_seconds=300,
+            )
+        except Exception as exc:  # noqa: BLE001 - 全A宽度是重要但非阻断数据，允许退回旧缓存并显式降级
+            legacy = self._read_cache("a_share_snapshot_em")
+            if not legacy:
+                raise
+            legacy_df, legacy_meta = legacy
+            quality = SourceQuality(
+                name="东方财富全A实时快照",
+                url=url,
+                as_of=legacy_meta.get("as_of"),
+                fetched_at=legacy_meta["fetched_at"],
+                status="stale_cache",
+                message=f"新版分页请求失败，退回旧缓存；宽度指标仅供参考：{exc}",
+                from_cache=True,
+                row_count=len(legacy_df),
+            )
+            return SourceFrame(legacy_df, quality)
 
     def xtquant_health(self) -> SourceQuality:
         """仅做 QMT/xtquant 可用性探测，不依赖其作为默认数据源。"""
@@ -471,4 +510,3 @@ class PublicDataProvider:
             from_cache=False,
             row_count=0,
         )
-

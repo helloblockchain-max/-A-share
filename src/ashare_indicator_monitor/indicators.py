@@ -274,6 +274,26 @@ def breadth_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
     return module, extra
 
 
+def select_market_amount(snapshot_amount: float | None, snapshot_count: int | None, index_amount: float | None) -> tuple[float | None, str]:
+    """选择融资买入占比的成交额分母，并避免不完整快照造成异常放大。
+
+    东方财富全 A 快照若分页失败可能只有 100 行，此时成交额会被低估两个数量级。
+    规则：
+    - 快照股票数足够多且成交额不显著低于中证全指成交额时，使用全 A 快照成交额；
+    - 否则退回中证全指成交额。
+    """
+
+    snapshot_amount = safe_float(snapshot_amount)
+    index_amount = safe_float(index_amount)
+    snapshot_count = int(snapshot_count or 0)
+    if snapshot_amount and snapshot_count >= 3500:
+        if not index_amount or snapshot_amount >= index_amount * 0.75:
+            return snapshot_amount, "东方财富全A快照成交额"
+    if index_amount:
+        return index_amount, "中证全指成交额（快照不完整时兜底）"
+    return snapshot_amount, "东方财富全A快照成交额（未能校验完整性）"
+
+
 def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]) -> tuple[ModuleScore, dict[str, Any]]:
     """杠杆与成交模块。"""
 
@@ -288,7 +308,11 @@ def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]
     csi_all = data.index_histories["csi_all"].sort_values("date")
     amount = pd.to_numeric(csi_all["amount"], errors="coerce")
     amount_pct = percentile_rank(amount)
-    latest_amount = breadth_extra.get("a_share_amount") or safe_float(amount.iloc[-1])
+    latest_amount, amount_source = select_market_amount(
+        breadth_extra.get("a_share_amount"),
+        breadth_extra.get("a_share_count"),
+        safe_float(amount.iloc[-1]),
+    )
     buy_ratio = safe_float(buy_amount.iloc[-1] / latest_amount * 100) if latest_amount else None
     buy_ratio_score = clamp(((buy_ratio or 0) - 8) / 12 * 100) if buy_ratio is not None else float("nan")
 
@@ -296,11 +320,21 @@ def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]
         _signal("两融余额历史分位", round(balance_pct, 2), "%", balance_pct, "两融余额处于高分位说明杠杆交易拥挤。", "金十聚合/交易所披露口径"),
         _signal("两融余额20日变化", round(change20, 2) if change20 == change20 else None, "%", change_score, "高位扩张代表过热；高位转负代表增量杠杆失速。", "金十聚合/交易所披露口径"),
         _signal("成交额历史分位", round(amount_pct, 2), "%", amount_pct, "成交额极端放大后萎缩是交易顶部的重要线索。", "东方财富指数行情"),
-        _signal("融资买入额/成交额", round(buy_ratio, 2) if buy_ratio is not None else None, "%", buy_ratio_score, "融资买入占比快速上升代表杠杆资金主导度提高。", "金十聚合+东方财富"),
+        _signal("融资买入额/成交额", round(buy_ratio, 2) if buy_ratio is not None else None, "%", buy_ratio_score, f"融资买入占比快速上升代表杠杆资金主导度提高；分母使用：{amount_source}。", "金十聚合+东方财富"),
     ]
     raw = _weighted_average([(balance_pct, 0.35), (change_score, 0.25), (amount_pct, 0.25), (buy_ratio_score, 0.15)])
     module = ModuleScore("leverage_turnover", "杠杆与成交", WEIGHTS["leverage_turnover"], round(raw, 2), round(raw * WEIGHTS["leverage_turnover"], 2), signals)
-    return module, {"margin_balance": latest_balance, "financing_buy_ratio": buy_ratio}
+    margin_chart = margin.tail(360).copy()
+    margin_chart["日期"] = margin_chart["日期"].astype(str)
+    margin_chart["融资融券余额_亿元"] = pd.to_numeric(margin_chart["融资融券余额"], errors="coerce") / 1e8
+    margin_chart["融资买入额_亿元"] = pd.to_numeric(margin_chart["融资买入额"], errors="coerce") / 1e8
+    return module, {
+        "margin_balance": latest_balance,
+        "financing_buy_ratio": buy_ratio,
+        "market_amount_used": latest_amount,
+        "market_amount_source": amount_source,
+        "margin_chart": margin_chart[["日期", "融资融券余额_亿元", "融资买入额_亿元"]].rename(columns={"日期": "date"}).to_dict("records"),
+    }
 
 
 def trend_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
@@ -359,9 +393,12 @@ def compute_dashboard_indicators(data: IndicatorInput) -> tuple[list[ModuleScore
     breadth, breadth_extra = breadth_module(data)
     modules.append(breadth)
     headline.update(breadth_extra)
+    if breadth_extra.get("a_share_count", 0) < 3500:
+        warnings.append("全A实时快照股票数不足，融资买入/成交额已自动退回中证全指成交额作为分母。")
 
     leverage, leverage_extra = leverage_turnover_module(data, breadth_extra)
     modules.append(leverage)
+    charts["margin"] = leverage_extra.pop("margin_chart")
     headline.update(leverage_extra)
 
     trend, trend_extra = trend_module(data)
@@ -371,10 +408,18 @@ def compute_dashboard_indicators(data: IndicatorInput) -> tuple[list[ModuleScore
     charts["module_scores"] = [{"name": module.name, "score": module.raw_score, "contribution": module.contribution} for module in modules]
     total = sum(module.contribution for module in modules)
     headline["total_score"] = round(total, 2)
+    red_flags = [
+        f"{module.name}：{signal.name} {signal.value}{signal.unit}（{signal.status}）"
+        for module in modules
+        for signal in module.signals
+        if signal.score >= 75
+    ]
+    if not red_flags:
+        red_flags = ["暂无单项高危信号，重点观察估值、股债相对强弱和趋势是否进一步恶化。"]
+    headline["red_flags"] = red_flags[:6]
 
     if valuation.raw_score >= 65 and trend.raw_score < 40:
         warnings.append("估值/ERP已偏热，但趋势尚未确认破位；按顶部预警处理，不宜直接判定顶部完成。")
     if leverage.raw_score >= 75:
         warnings.append("杠杆成交模块处于高位，请重点核对两融源与成交额是否同步更新。")
     return modules, {"headline": headline, "charts": charts}, warnings
-

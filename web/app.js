@@ -13,10 +13,12 @@ const elements = {
   tenYield: document.getElementById("tenYield"),
   advanceRatio: document.getElementById("advanceRatio"),
   financingRatio: document.getElementById("financingRatio"),
+  financingSource: document.getElementById("financingSource"),
   moduleBars: document.getElementById("moduleBars"),
   signalsTable: document.getElementById("signalsTable"),
   sourceQuality: document.getElementById("sourceQuality"),
   warnings: document.getElementById("warnings"),
+  redFlags: document.getElementById("redFlags"),
 };
 
 function scoreColor(score) {
@@ -37,6 +39,7 @@ function renderHeadline(payload) {
   elements.tenYield.textContent = val(headline.ten_year_yield, "%");
   elements.advanceRatio.textContent = pct(headline.advance_ratio);
   elements.financingRatio.textContent = val(headline.financing_buy_ratio, "%");
+  elements.financingSource.textContent = headline.market_amount_source || "杠杆资金主导度";
   elements.lastUpdated.textContent = `生成：${payload.generated_at || "--"}｜数据：${payload.as_of || "--"}`;
 }
 
@@ -50,13 +53,26 @@ function renderWarnings(warnings) {
   elements.warnings.innerHTML = `<strong>风险提示</strong><ul>${warnings.map((w) => `<li>${w}</li>`).join("")}</ul>`;
 }
 
+function renderRedFlags(flags) {
+  elements.redFlags.innerHTML = (flags || [])
+    .map((flag) => `<li>${flag}</li>`)
+    .join("");
+}
+
 function renderModules(modules) {
   elements.moduleBars.innerHTML = modules
     .map((m) => {
       const color = scoreColor(m.raw_score);
+      const summary = (m.signals || [])
+        .slice(0, 2)
+        .map((s) => `${s.name}：${s.value ?? "--"}${s.unit || ""}`)
+        .join("；");
       return `
         <div class="module-row">
-          <strong>${m.name}</strong>
+          <div>
+            <strong>${m.name}</strong>
+            <small>${summary}</small>
+          </div>
           <div class="bar-bg"><div class="bar-fill" style="width:${m.raw_score}%; background:${color};"></div></div>
           <span>${fmt.format(m.raw_score)}分 / +${fmt.format(m.contribution)}</span>
         </div>
@@ -124,6 +140,7 @@ function drawLineChart(canvasId, series, lines) {
       if (Number.isFinite(value)) values.push(value);
     });
   });
+  if (values.length === 0) return;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
@@ -177,6 +194,13 @@ function renderCharts(charts) {
     { key: "ma20", color: "#fdb022", width: 1.5 },
     { key: "ma60", color: "#32d583", width: 1.5 },
   ]);
+  drawLineChart("erpChart", charts.erp, [
+    { key: "erp", color: "#fdb022", width: 2.5 },
+  ]);
+  drawLineChart("marginChart", charts.margin, [
+    { key: "融资融券余额_亿元", color: "#5ca9ff", width: 2.5 },
+    { key: "融资买入额_亿元", color: "#f97066", width: 1.5 },
+  ]);
 }
 
 async function loadDashboard(force = false) {
@@ -186,8 +210,10 @@ async function loadDashboard(force = false) {
     const response = await fetch(`/api/dashboard${force ? "?force=true" : ""}`);
     if (!response.ok) throw new Error(`接口返回 ${response.status}`);
     const payload = await response.json();
+    state.lastPayload = payload;
     renderHeadline(payload);
     renderWarnings(payload.warnings);
+    renderRedFlags(payload.headline?.red_flags || []);
     renderModules(payload.modules || []);
     renderSignals(payload.modules || []);
     renderSources(payload.source_quality || []);
@@ -202,5 +228,7 @@ async function loadDashboard(force = false) {
 }
 
 elements.refreshBtn.addEventListener("click", () => loadDashboard(true));
-window.addEventListener("resize", () => loadDashboard(false));
+window.addEventListener("resize", () => renderCharts(state.lastPayload?.charts || {}));
+const state = { lastPayload: null, timer: null };
 loadDashboard(false);
+state.timer = window.setInterval(() => loadDashboard(false), 60_000);

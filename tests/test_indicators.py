@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ashare_indicator_monitor.indicators import score_bucket
+from ashare_indicator_monitor.indicators import score_bucket, select_market_amount
 from ashare_indicator_monitor.utils import bp_change, clamp, percentile_rank, zscore_latest
 
 
@@ -31,3 +31,14 @@ def test_clamp_handles_nan() -> None:
     assert clamp(float("nan")) == 0
     assert clamp(120) == 100
 
+
+def test_select_market_amount_falls_back_when_snapshot_incomplete() -> None:
+    amount, source = select_market_amount(snapshot_amount=3.9e9, snapshot_count=100, index_amount=1.7e12)
+    assert amount == 1.7e12
+    assert "兜底" in source
+
+
+def test_select_market_amount_uses_complete_snapshot() -> None:
+    amount, source = select_market_amount(snapshot_amount=2.4e12, snapshot_count=5200, index_amount=1.7e12)
+    assert amount == 2.4e12
+    assert "全A快照" in source

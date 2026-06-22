@@ -50,11 +50,19 @@
         <article class="metric-card">
           <span>融资买入/成交额</span>
           <strong id="financingRatio">--</strong>
-          <small>杠杆资金主导度</small>
+          <small id="financingSource">杠杆资金主导度</small>
         </article>
       </section>
 
       <section id="warnings" class="warnings hidden"></section>
+
+      <section class="panel redflags">
+        <div class="panel-title">
+          <h2>当前最重要的信号</h2>
+          <p>参考 demo 的“红旗信号”设计，优先暴露高风险单项。</p>
+        </div>
+        <ul id="redFlags"></ul>
+      </section>
 
       <section class="panel">
         <div class="panel-title">
@@ -78,6 +86,20 @@
             <p>沪深300 / 中债国债财富指数</p>
           </div>
           <canvas id="rsChart" height="240"></canvas>
+        </article>
+        <article class="panel">
+          <div class="panel-title">
+            <h2>ERP</h2>
+            <p>沪深300盈利收益率 - 10Y国债</p>
+          </div>
+          <canvas id="erpChart" height="240"></canvas>
+        </article>
+        <article class="panel">
+          <div class="panel-title">
+            <h2>两融余额</h2>
+            <p>融资融券余额与融资买入额（亿元）</p>
+          </div>
+          <canvas id="marginChart" height="240"></canvas>
         </article>
       </section>
 
@@ -120,4 +142,3 @@
     <script src="/static/app.js"></script>
   </body>
 </html>
-

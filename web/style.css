@@ -158,6 +158,17 @@ button:disabled {
   color: #ffe2a8;
 }
 
+.redflags ul {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.redflags li {
+  color: #ffe2a8;
+}
+
 .hidden {
   display: none;
 }
@@ -190,6 +201,13 @@ button:disabled {
   grid-template-columns: 160px 1fr 90px;
   gap: 12px;
   align-items: center;
+}
+
+.module-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .bar-bg {
@@ -316,4 +334,3 @@ footer {
     grid-template-columns: 1fr;
   }
 }
-
