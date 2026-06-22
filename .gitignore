@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.cache/
+*.log
+chatgpt_share.html
+chatgpt_share_decoded.txt
+research_extract_raw.txt
+research_long_*.md
+

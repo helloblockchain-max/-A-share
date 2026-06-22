@@ -1,0 +1,26 @@
+[project]
+name = "ashare-indicator-monitor"
+version = "0.1.0"
+description = "A股顶部指标检测与实时网页看板"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "akshare>=1.18.0",
+  "fastapi>=0.110",
+  "numpy>=1.24",
+  "openpyxl>=3.1",
+  "pandas>=2.0",
+  "requests>=2.31",
+  "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
