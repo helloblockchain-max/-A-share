@@ -270,6 +270,7 @@ def breadth_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
         "positive_60d_ratio": pos60_ratio,
         "a_share_count": int(len(snap)),
         "a_share_amount": float(pd.to_numeric(snap["成交额"], errors="coerce").sum(skipna=True)),
+        "a_share_float_market_cap": float(pd.to_numeric(snap["流通市值"], errors="coerce").sum(skipna=True)),
     }
     return module, extra
 
@@ -294,20 +295,37 @@ def select_market_amount(snapshot_amount: float | None, snapshot_count: int | No
     return snapshot_amount, "东方财富全A快照成交额（未能校验完整性）"
 
 
+def select_float_market_cap(snapshot_float_cap: float | None, snapshot_count: int | None) -> tuple[float | None, str]:
+    """选择全 A 流通市值，并避免不完整快照造成融资余额占比失真。"""
+
+    snapshot_float_cap = safe_float(snapshot_float_cap)
+    snapshot_count = int(snapshot_count or 0)
+    if snapshot_float_cap and snapshot_count >= 3500:
+        return snapshot_float_cap, "东方财富全A快照流通市值"
+    return None, "全A快照不完整，未计算流通市值分母"
+
+
 def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]) -> tuple[ModuleScore, dict[str, Any]]:
     """杠杆与成交模块。"""
 
     margin = data.margin.sort_values("日期").copy()
-    balance = pd.to_numeric(margin["融资融券余额"], errors="coerce")
+    financing_balance = pd.to_numeric(margin["融资余额"], errors="coerce")
+    margin_balance = pd.to_numeric(margin["融资融券余额"], errors="coerce")
     buy_amount = pd.to_numeric(margin["融资买入额"], errors="coerce")
-    latest_balance = safe_float(balance.iloc[-1])
-    balance_pct = percentile_rank(balance)
-    change20 = (balance.iloc[-1] / balance.iloc[-21] - 1) * 100 if len(balance.dropna()) > 20 else float("nan")
+    latest_financing_balance = safe_float(financing_balance.iloc[-1])
+    balance_pct = percentile_rank(financing_balance)
+    change20 = (financing_balance.iloc[-1] / financing_balance.iloc[-21] - 1) * 100 if len(financing_balance.dropna()) > 20 else float("nan")
     change_score = 80.0 if balance_pct > 80 and change20 == change20 and change20 < 0 else clamp((change20 or 0) / 12 * 100) if change20 == change20 else float("nan")
 
     csi_all = data.index_histories["csi_all"].sort_values("date")
     amount = pd.to_numeric(csi_all["amount"], errors="coerce")
     amount_pct = percentile_rank(amount)
+    float_market_cap, float_market_cap_source = select_float_market_cap(
+        breadth_extra.get("a_share_float_market_cap"),
+        breadth_extra.get("a_share_count"),
+    )
+    financing_float_mcap_ratio = safe_float(latest_financing_balance / float_market_cap * 100) if latest_financing_balance and float_market_cap else None
+    financing_float_mcap_score = clamp(((financing_float_mcap_ratio or 0) - 2.0) / 4.0 * 100) if financing_float_mcap_ratio is not None else float("nan")
     latest_amount, amount_source = select_market_amount(
         breadth_extra.get("a_share_amount"),
         breadth_extra.get("a_share_count"),
@@ -317,19 +335,24 @@ def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]
     buy_ratio_score = clamp(((buy_ratio or 0) - 8) / 12 * 100) if buy_ratio is not None else float("nan")
 
     signals = [
-        _signal("两融余额历史分位", round(balance_pct, 2), "%", balance_pct, "两融余额处于高分位说明杠杆交易拥挤。", "金十聚合/交易所披露口径"),
-        _signal("两融余额20日变化", round(change20, 2) if change20 == change20 else None, "%", change_score, "高位扩张代表过热；高位转负代表增量杠杆失速。", "金十聚合/交易所披露口径"),
+        _signal("融资余额/流通市值", round(financing_float_mcap_ratio, 2) if financing_float_mcap_ratio is not None else None, "%", financing_float_mcap_score, f"融资余额相对全A流通市值越高，杠杆拥挤度越高；分母使用：{float_market_cap_source}。", "金十聚合+东方财富全A快照"),
+        _signal("融资余额历史分位", round(balance_pct, 2), "%", balance_pct, "融资余额处于高分位说明杠杆交易拥挤。", "金十聚合/交易所披露口径"),
+        _signal("融资余额20日变化", round(change20, 2) if change20 == change20 else None, "%", change_score, "高位扩张代表过热；高位转负代表增量杠杆失速。", "金十聚合/交易所披露口径"),
         _signal("成交额历史分位", round(amount_pct, 2), "%", amount_pct, "成交额极端放大后萎缩是交易顶部的重要线索。", "东方财富指数行情"),
         _signal("融资买入额/成交额", round(buy_ratio, 2) if buy_ratio is not None else None, "%", buy_ratio_score, f"融资买入占比快速上升代表杠杆资金主导度提高；分母使用：{amount_source}。", "金十聚合+东方财富"),
     ]
-    raw = _weighted_average([(balance_pct, 0.35), (change_score, 0.25), (amount_pct, 0.25), (buy_ratio_score, 0.15)])
+    raw = _weighted_average([(financing_float_mcap_score, 0.35), (balance_pct, 0.20), (change_score, 0.20), (amount_pct, 0.15), (buy_ratio_score, 0.10)])
     module = ModuleScore("leverage_turnover", "杠杆与成交", WEIGHTS["leverage_turnover"], round(raw, 2), round(raw * WEIGHTS["leverage_turnover"], 2), signals)
     margin_chart = margin.tail(360).copy()
     margin_chart["日期"] = margin_chart["日期"].astype(str)
     margin_chart["融资融券余额_亿元"] = pd.to_numeric(margin_chart["融资融券余额"], errors="coerce") / 1e8
     margin_chart["融资买入额_亿元"] = pd.to_numeric(margin_chart["融资买入额"], errors="coerce") / 1e8
     return module, {
-        "margin_balance": latest_balance,
+        "margin_balance": safe_float(margin_balance.iloc[-1]),
+        "financing_balance": latest_financing_balance,
+        "financing_balance_float_mcap_ratio": financing_float_mcap_ratio,
+        "float_market_cap_used": float_market_cap,
+        "float_market_cap_source": float_market_cap_source,
         "financing_buy_ratio": buy_ratio,
         "market_amount_used": latest_amount,
         "market_amount_source": amount_source,
@@ -394,7 +417,7 @@ def compute_dashboard_indicators(data: IndicatorInput) -> tuple[list[ModuleScore
     modules.append(breadth)
     headline.update(breadth_extra)
     if breadth_extra.get("a_share_count", 0) < 3500:
-        warnings.append("全A实时快照股票数不足，融资买入/成交额已自动退回中证全指成交额作为分母。")
+        warnings.append("全A实时快照股票数不足，融资余额/流通市值无法可靠计算；融资买入/成交额已自动退回中证全指成交额作为分母。")
 
     leverage, leverage_extra = leverage_turnover_module(data, breadth_extra)
     modules.append(leverage)

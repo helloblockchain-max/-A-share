@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ashare_indicator_monitor.indicators import score_bucket, select_market_amount
+from ashare_indicator_monitor.indicators import score_bucket, select_float_market_cap, select_market_amount
 from ashare_indicator_monitor.utils import bp_change, clamp, percentile_rank, zscore_latest
 
 
@@ -42,3 +42,15 @@ def test_select_market_amount_uses_complete_snapshot() -> None:
     amount, source = select_market_amount(snapshot_amount=2.4e12, snapshot_count=5200, index_amount=1.7e12)
     assert amount == 2.4e12
     assert "全A快照" in source
+
+
+def test_select_float_market_cap_requires_complete_snapshot() -> None:
+    cap, source = select_float_market_cap(snapshot_float_cap=9.0e11, snapshot_count=100)
+    assert cap is None
+    assert "不完整" in source
+
+
+def test_select_float_market_cap_uses_complete_snapshot() -> None:
+    cap, source = select_float_market_cap(snapshot_float_cap=8.0e13, snapshot_count=5200)
+    assert cap == 8.0e13
+    assert "流通市值" in source

@@ -38,8 +38,8 @@ function renderHeadline(payload) {
   elements.erpValue.textContent = val(headline.latest_erp, "%");
   elements.tenYield.textContent = val(headline.ten_year_yield, "%");
   elements.advanceRatio.textContent = pct(headline.advance_ratio);
-  elements.financingRatio.textContent = val(headline.financing_buy_ratio, "%");
-  elements.financingSource.textContent = headline.market_amount_source || "杠杆资金主导度";
+  elements.financingRatio.textContent = val(headline.financing_balance_float_mcap_ratio, "%");
+  elements.financingSource.textContent = headline.float_market_cap_source || "融资杠杆拥挤度";
   elements.lastUpdated.textContent = `生成：${payload.generated_at || "--"}｜数据：${payload.as_of || "--"}`;
 }
 
