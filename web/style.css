@@ -93,7 +93,7 @@ button:disabled {
 
 .score-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 2fr) repeat(4, minmax(170px, 1fr));
+  grid-template-columns: minmax(320px, 2fr) repeat(5, minmax(150px, 1fr));
   gap: 16px;
 }
 
@@ -149,6 +149,18 @@ button:disabled {
   font-size: 30px;
 }
 
+.phase-detail,
+.action-hint {
+  margin-bottom: 10px;
+  line-height: 1.55;
+}
+
+.action-hint {
+  color: #d7e7ff;
+  border-left: 3px solid var(--blue);
+  padding-left: 10px;
+}
+
 .warnings {
   margin-top: 16px;
   padding: 16px 18px;
@@ -167,6 +179,39 @@ button:disabled {
 
 .redflags li {
   color: #ffe2a8;
+}
+
+.confirmation-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.matrix-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.matrix-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.matrix-score {
+  margin: 12px 0 10px;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.matrix-card p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .hidden {
@@ -313,7 +358,8 @@ footer {
     grid-column: 1 / -1;
   }
   .charts,
-  .source-quality {
+  .source-quality,
+  .confirmation-grid {
     grid-template-columns: 1fr;
   }
 }

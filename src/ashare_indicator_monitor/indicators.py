@@ -10,6 +10,8 @@ from .config import SCORE_BUCKETS, WEIGHTS
 from .models import ModuleScore, Signal
 from .utils import bp_change, clamp, ma, percentile_rank, safe_float, zscore_latest
 
+MODEL_VERSION = "A股顶部指标 v2.1（确认矩阵版）"
+
 
 @dataclass
 class IndicatorInput:
@@ -54,6 +56,19 @@ def _signal(
     else:
         status = "正常"
     return Signal(name=name, value=value, unit=unit, score=round(bounded, 2), status=status, detail=detail, source=source)
+
+
+def _status_from_score(score: float) -> str:
+    """把风险分转换为简短状态，供矩阵卡片复用。"""
+
+    bounded = clamp(score)
+    if bounded >= 75:
+        return "高危"
+    if bounded >= 60:
+        return "预警"
+    if bounded >= 40:
+        return "观察"
+    return "正常"
 
 
 def _weighted_average(items: list[tuple[float, float]]) -> float:
@@ -236,6 +251,7 @@ def breadth_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
     valid_ret = pd.to_numeric(snap["涨跌幅"], errors="coerce").dropna()
     advance_ratio = float((valid_ret > 0).mean()) if not valid_ret.empty else float("nan")
     decline_ratio = float((valid_ret < 0).mean()) if not valid_ret.empty else float("nan")
+    median_ret = safe_float(valid_ret.median()) if not valid_ret.empty else None
     pos60 = pd.to_numeric(snap["60日涨跌幅"], errors="coerce").dropna()
     pos60_ratio = float((pos60 > 0).mean()) if not pos60.empty else float("nan")
 
@@ -244,6 +260,13 @@ def breadth_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
     near_high = bool(close.iloc[-1] >= close.tail(252).max() * 0.97) if len(close.dropna()) >= 60 else False
     divergence_score = clamp((0.55 - advance_ratio) / 0.25 * 100) if advance_ratio == advance_ratio and near_high else 0.0
     pos60_score = clamp((0.55 - pos60_ratio) / 0.35 * 100) if pos60_ratio == pos60_ratio and near_high else clamp((0.45 - pos60_ratio) / 0.35 * 50) if pos60_ratio == pos60_ratio else float("nan")
+    median_score = (
+        clamp((-(median_ret or 0)) / 2.5 * 100)
+        if median_ret is not None and near_high
+        else clamp((-(median_ret or 0)) / 4.0 * 60)
+        if median_ret is not None
+        else float("nan")
+    )
 
     def return_n(key: str, n: int = 60) -> float:
         frame = data.index_histories[key].sort_values("date")
@@ -260,13 +283,15 @@ def breadth_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
     signals = [
         _signal("全A上涨家数占比", round(advance_ratio * 100, 2) if advance_ratio == advance_ratio else None, "%", divergence_score, "指数接近阶段高位但上涨家数不足，属于宽度背离。", "东方财富全A快照"),
         _signal("60日涨幅为正占比", round(pos60_ratio * 100, 2) if pos60_ratio == pos60_ratio else None, "%", pos60_score, "中期赚钱效应收缩会削弱顶部后段承接。", "东方财富全A快照"),
+        _signal("全A涨跌幅中位数", round(median_ret, 2) if median_ret is not None else None, "%", median_score, "比上涨家数更抗极端值；指数高位时中位数转负代表多数股票已走弱。", "东方财富全A快照"),
         _signal("成长/小盘相对沪深300", round(under, 2) if under == under else None, "百分点", style_score, "创业板、科创、小盘若弱于沪深300，说明风险偏好收缩。", "东方财富指数行情"),
     ]
-    raw = _weighted_average([(divergence_score, 0.40), (pos60_score, 0.35), (style_score, 0.25)])
+    raw = _weighted_average([(divergence_score, 0.35), (pos60_score, 0.25), (median_score, 0.20), (style_score, 0.20)])
     module = ModuleScore("breadth", "市场宽度", WEIGHTS["breadth"], round(raw, 2), round(raw * WEIGHTS["breadth"], 2), signals)
     extra = {
         "advance_ratio": advance_ratio,
         "decline_ratio": decline_ratio,
+        "median_return": median_ret,
         "positive_60d_ratio": pos60_ratio,
         "a_share_count": int(len(snap)),
         "a_share_amount": float(pd.to_numeric(snap["成交额"], errors="coerce").sum(skipna=True)),
@@ -368,7 +393,7 @@ def leverage_turnover_module(data: IndicatorInput, breadth_extra: dict[str, Any]
 def trend_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
     """趋势确认模块。"""
 
-    def one_index(key: str) -> tuple[float, str]:
+    def one_index(key: str) -> tuple[float, str, pd.Series]:
         frame = data.index_histories[key].sort_values("date")
         close = pd.to_numeric(frame["close"], errors="coerce").dropna()
         latest = close.iloc[-1]
@@ -379,22 +404,148 @@ def trend_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, Any]]:
             if latest < avg:
                 score += add
                 parts.append(f"跌破{window}日线")
-        return clamp(score), "、".join(parts) if parts else "仍在主要均线上方"
+        return clamp(score), "、".join(parts) if parts else "仍在主要均线上方", close
 
-    hs_score, hs_detail = one_index("hs300")
-    all_score, all_detail = one_index("csi_all")
+    hs_score, hs_detail, hs_close = one_index("hs300")
+    all_score, all_detail, _ = one_index("csi_all")
+    hs_ret20 = (hs_close.iloc[-1] / hs_close.iloc[-21] - 1) * 100 if len(hs_close) > 20 else float("nan")
+    hs_drawdown120 = (hs_close.iloc[-1] / hs_close.tail(120).max() - 1) * 100 if len(hs_close) >= 60 else float("nan")
+    ret20_score = clamp(((-hs_ret20) - 2) / 6 * 100) if hs_ret20 == hs_ret20 else float("nan")
+    drawdown_score = clamp(((-hs_drawdown120) - 3) / 8 * 100) if hs_drawdown120 == hs_drawdown120 else float("nan")
     signals = [
         _signal("沪深300趋势破位", hs_detail, "", hs_score, "趋势破位是顶部从预警走向确认的条件。", "东方财富指数行情"),
         _signal("中证全指趋势破位", all_detail, "", all_score, "全市场指数破位比单一宽基更能确认风险扩散。", "东方财富指数行情"),
+        _signal("沪深300 20日收益", round(hs_ret20, 2) if hs_ret20 == hs_ret20 else None, "%", ret20_score, "短周期收益由强转弱，是顶部确认前后的动量衰减信号。", "东方财富指数行情"),
+        _signal("沪深300距120日高点", round(hs_drawdown120, 2) if hs_drawdown120 == hs_drawdown120 else None, "%", drawdown_score, "从阶段高点回撤扩大，说明顶部风险从预警进入兑现阶段。", "东方财富指数行情"),
     ]
-    raw = _weighted_average([(hs_score, 0.55), (all_score, 0.45)])
+    raw = _weighted_average([(hs_score, 0.35), (all_score, 0.30), (ret20_score, 0.15), (drawdown_score, 0.20)])
     module = ModuleScore("trend", "趋势确认", WEIGHTS["trend"], round(raw, 2), round(raw * WEIGHTS["trend"], 2), signals)
 
     hs = data.index_histories["hs300"].sort_values("date").tail(360).copy()
     hs["ma20"] = pd.to_numeric(hs["close"], errors="coerce").rolling(20, min_periods=1).mean()
     hs["ma60"] = pd.to_numeric(hs["close"], errors="coerce").rolling(60, min_periods=1).mean()
+    hs["ma120"] = pd.to_numeric(hs["close"], errors="coerce").rolling(120, min_periods=1).mean()
     hs["date"] = hs["date"].astype(str)
-    return module, {"hs300_trend": hs[["date", "close", "ma20", "ma60"]].to_dict("records")}
+    return module, {"hs300_trend": hs[["date", "close", "ma20", "ma60", "ma120"]].to_dict("records")}
+
+
+def _modules_by_key(modules: list[ModuleScore]) -> dict[str, ModuleScore]:
+    """按 key 快速索引模块。"""
+
+    return {module.key: module for module in modules}
+
+
+def build_confirmation_matrix(modules: list[ModuleScore]) -> list[dict[str, Any]]:
+    """构建“热度-压制-脆弱-确认”四段式顶部确认矩阵。"""
+
+    by_key = _modules_by_key(modules)
+
+    def score_of(key: str) -> float:
+        module = by_key.get(key)
+        return module.raw_score if module else 0.0
+
+    heat = max(score_of("valuation_erp"), score_of("leverage_turnover"))
+    pressure = score_of("bond_pressure")
+    fragility = _weighted_average([(score_of("stock_bond_rs"), 0.55), (score_of("breadth"), 0.45)])
+    confirmation = score_of("trend")
+    matrix = [
+        {
+            "key": "heat",
+            "name": "热度/拥挤",
+            "score": round(heat, 2),
+            "status": _status_from_score(heat),
+            "detail": "估值 ERP 与融资成交是否进入高分位，是顶部风险的第一层燃料。",
+        },
+        {
+            "key": "pressure",
+            "name": "债券压制",
+            "score": round(pressure, 2),
+            "status": _status_from_score(pressure),
+            "detail": "利率上行、期限利差收窄和债券财富指数走弱，会压缩股票估值容错。",
+        },
+        {
+            "key": "fragility",
+            "name": "内部脆弱",
+            "score": round(fragility, 2),
+            "status": _status_from_score(fragility),
+            "detail": "股债相对强弱过热叠加市场宽度走弱，说明上涨结构开始松动。",
+        },
+        {
+            "key": "confirmation",
+            "name": "趋势确认",
+            "score": round(confirmation, 2),
+            "status": _status_from_score(confirmation),
+            "detail": "跌破关键均线、20日收益转弱和距高点回撤，是从预警到确认的最后一环。",
+        },
+    ]
+    return matrix
+
+
+def classify_market_phase(modules: list[ModuleScore], total_score: float) -> dict[str, str]:
+    """根据模块共振程度给出阶段研判与风控动作提示。"""
+
+    by_key = _modules_by_key(modules)
+
+    def score_of(key: str) -> float:
+        module = by_key.get(key)
+        return module.raw_score if module else 0.0
+
+    valuation = score_of("valuation_erp")
+    bond = score_of("bond_pressure")
+    stock_bond = score_of("stock_bond_rs")
+    breadth = score_of("breadth")
+    leverage = score_of("leverage_turnover")
+    trend = score_of("trend")
+
+    if total_score >= 75 and trend >= 60:
+        phase = "顶部确认/防守阶段"
+        detail = "总分和趋势确认同时进入高位，说明风险已从估值预警扩散到价格破位。"
+        action = "以降低 Beta、保护利润和检查对冲为主，不把反弹当成新增杠杆信号。"
+    elif total_score >= 60 and (trend >= 40 or breadth >= 55):
+        phase = "顶部预警/结构走弱"
+        detail = "多模块开始共振，且市场宽度或趋势已出现弱化，顶部概率明显抬升。"
+        action = "停止追涨高弹性资产，优先压降拥挤行业和弱势个股。"
+    elif valuation >= 60 and leverage >= 55 and trend < 40:
+        phase = "热度偏高但尚未破位"
+        detail = "估值或杠杆拥挤已偏热，但趋势确认尚未给出破位信号。"
+        action = "保留趋势仓位，但新开仓要求更高胜率，并密切跟踪两融和宽度。"
+    elif bond >= 55 and stock_bond >= 55:
+        phase = "股债赔率恶化观察期"
+        detail = "债券端压力和股债相对强弱同时偏热，说明继续扩估值的赔率下降。"
+        action = "控制组合久期与高估值暴露，等待宽度或趋势给出进一步确认。"
+    elif total_score < 40:
+        phase = "健康上涨/低顶部风险"
+        detail = "暂未出现多模块顶部共振，当前更接近正常风险偏好修复。"
+        action = "不主动猜顶，按原有趋势与仓位纪律跟踪关键红旗信号。"
+    else:
+        phase = "中性偏热/等待确认"
+        detail = "部分模块偏热但尚未形成完整顶部链条，需要观察是否向趋势破位扩散。"
+        action = "降低追涨冲动，保留核心仓位，同时为后续减仓/对冲预设触发条件。"
+
+    return {"market_phase": phase, "phase_detail": detail, "action_hint": action}
+
+
+def build_key_signals(modules: list[ModuleScore], limit: int = 6) -> list[str]:
+    """按风险分输出最重要信号；没有高危时也给出排序靠前的观察项。"""
+
+    ranked: list[tuple[float, str]] = []
+    for module in modules:
+        for signal in module.signals:
+            value = "--" if signal.value is None else f"{signal.value}{signal.unit}"
+            ranked.append(
+                (
+                    signal.score,
+                    f"{module.name}｜{signal.name}：{value}，风险分 {signal.score:.1f}（{signal.status}）",
+                )
+            )
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    high = [text for score, text in ranked if score >= 75]
+    if high:
+        return high[:limit]
+    observed = [text for score, text in ranked if score >= 40][:limit]
+    if observed:
+        return observed
+    return ["暂无单项高危信号，重点观察估值、股债相对强弱和趋势是否进一步恶化。"]
 
 
 def compute_dashboard_indicators(data: IndicatorInput) -> tuple[list[ModuleScore], dict[str, Any], list[str]]:
@@ -436,15 +587,10 @@ def compute_dashboard_indicators(data: IndicatorInput) -> tuple[list[ModuleScore
     charts["module_scores"] = [{"name": module.name, "score": module.raw_score, "contribution": module.contribution} for module in modules]
     total = sum(module.contribution for module in modules)
     headline["total_score"] = round(total, 2)
-    red_flags = [
-        f"{module.name}：{signal.name} {signal.value}{signal.unit}（{signal.status}）"
-        for module in modules
-        for signal in module.signals
-        if signal.score >= 75
-    ]
-    if not red_flags:
-        red_flags = ["暂无单项高危信号，重点观察估值、股债相对强弱和趋势是否进一步恶化。"]
-    headline["red_flags"] = red_flags[:6]
+    headline["model_version"] = MODEL_VERSION
+    headline["confirmation_matrix"] = build_confirmation_matrix(modules)
+    headline.update(classify_market_phase(modules, total))
+    headline["red_flags"] = build_key_signals(modules)
 
     if valuation.raw_score >= 65 and trend.raw_score < 40:
         warnings.append("估值/ERP已偏热，但趋势尚未确认破位；按顶部预警处理，不宜直接判定顶部完成。")

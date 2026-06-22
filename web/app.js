@@ -9,16 +9,22 @@ const elements = {
   scoreRing: document.getElementById("scoreRing"),
   scoreStatus: document.getElementById("scoreStatus"),
   scoreDetail: document.getElementById("scoreDetail"),
+  phaseDetail: document.getElementById("phaseDetail"),
+  actionHint: document.getElementById("actionHint"),
+  modelVersion: document.getElementById("modelVersion"),
   erpValue: document.getElementById("erpValue"),
   tenYield: document.getElementById("tenYield"),
   advanceRatio: document.getElementById("advanceRatio"),
   financingRatio: document.getElementById("financingRatio"),
   financingSource: document.getElementById("financingSource"),
+  dataConfidence: document.getElementById("dataConfidence"),
+  dataConfidenceSource: document.getElementById("dataConfidenceSource"),
   moduleBars: document.getElementById("moduleBars"),
   signalsTable: document.getElementById("signalsTable"),
   sourceQuality: document.getElementById("sourceQuality"),
   warnings: document.getElementById("warnings"),
   redFlags: document.getElementById("redFlags"),
+  confirmationMatrix: document.getElementById("confirmationMatrix"),
 };
 
 function scoreColor(score) {
@@ -33,13 +39,20 @@ function renderHeadline(payload) {
   elements.totalScore.textContent = fmt.format(payload.total_score);
   elements.scoreRing.style.setProperty("--score", `${payload.total_score * 3.6}deg`);
   elements.scoreRing.style.background = `radial-gradient(circle, var(--panel) 58%, transparent 60%), conic-gradient(${scoreColor(payload.total_score)} ${payload.total_score * 3.6}deg, rgba(255,255,255,0.10) 0)`;
-  elements.scoreStatus.textContent = payload.status;
+  elements.scoreStatus.textContent = headline.market_phase || payload.status;
   elements.scoreDetail.textContent = payload.status_detail;
+  elements.phaseDetail.textContent = headline.phase_detail || "等待阶段研判。";
+  elements.actionHint.textContent = headline.action_hint || "等待风控动作提示。";
+  elements.modelVersion.textContent = headline.model_version || "A股顶部指标";
   elements.erpValue.textContent = val(headline.latest_erp, "%");
   elements.tenYield.textContent = val(headline.ten_year_yield, "%");
   elements.advanceRatio.textContent = pct(headline.advance_ratio);
   elements.financingRatio.textContent = val(headline.financing_balance_float_mcap_ratio, "%");
   elements.financingSource.textContent = headline.float_market_cap_source || "融资杠杆拥挤度";
+  elements.dataConfidence.textContent = Number.isFinite(headline.data_confidence_score)
+    ? `${fmt.format(headline.data_confidence_score)}分`
+    : "--";
+  elements.dataConfidenceSource.textContent = headline.data_confidence_detail || "按核心数据源质量折算";
   elements.lastUpdated.textContent = `生成：${payload.generated_at || "--"}｜数据：${payload.as_of || "--"}`;
 }
 
@@ -56,6 +69,25 @@ function renderWarnings(warnings) {
 function renderRedFlags(flags) {
   elements.redFlags.innerHTML = (flags || [])
     .map((flag) => `<li>${flag}</li>`)
+    .join("");
+}
+
+function renderConfirmationMatrix(matrix) {
+  elements.confirmationMatrix.innerHTML = (matrix || [])
+    .map((item) => {
+      const score = Number(item.score || 0);
+      return `
+        <article class="matrix-card">
+          <div class="matrix-head">
+            <strong>${item.name}</strong>
+            <span class="pill">${item.status || "--"}</span>
+          </div>
+          <div class="matrix-score" style="color:${scoreColor(score)}">${fmt.format(score)}分</div>
+          <div class="bar-bg"><div class="bar-fill" style="width:${Math.max(0, Math.min(100, score))}%; background:${scoreColor(score)};"></div></div>
+          <p>${item.detail || ""}</p>
+        </article>
+      `;
+    })
     .join("");
 }
 
@@ -188,6 +220,7 @@ function renderCharts(charts) {
     { key: "close", color: "#5ca9ff", width: 2.5 },
     { key: "ma20", color: "#fdb022", width: 1.5 },
     { key: "ma60", color: "#32d583", width: 1.5 },
+    { key: "ma120", color: "#9b8cff", width: 1.2 },
   ]);
   drawLineChart("rsChart", charts.relative_strength, [
     { key: "ratio", color: "#9b8cff", width: 2.5 },
@@ -213,6 +246,7 @@ async function loadDashboard(force = false) {
     renderHeadline(payload);
     renderWarnings(payload.warnings);
     renderRedFlags(payload.headline?.red_flags || []);
+    renderConfirmationMatrix(payload.headline?.confirmation_matrix || []);
     renderModules(payload.modules || []);
     renderSignals(payload.modules || []);
     renderSources(payload.source_quality || []);

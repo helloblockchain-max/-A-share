@@ -14,6 +14,40 @@ from .models import DashboardPayload, SourceQuality, now_iso
 from .providers import PublicDataProvider, SourceFrame
 
 
+def summarize_source_confidence(qualities: list[SourceQuality]) -> dict[str, Any]:
+    """把多数据源质量标签折算成前端可读的数据置信度。"""
+
+    status_score = {
+        "ok": 100,
+        "fresh_cache": 90,
+        "stale": 65,
+        "stale_cache": 45,
+        "not_available": 35,
+        "error": 20,
+    }
+    core = [q for q in qualities if "xtquant" not in q.name.lower() and "qmt" not in q.name.lower()]
+    scored = [status_score.get(q.status, 50) for q in core]
+    score = round(sum(scored) / len(scored), 1) if scored else 0.0
+    if score >= 90:
+        label = "高"
+    elif score >= 75:
+        label = "较高"
+    elif score >= 60:
+        label = "中等"
+    else:
+        label = "偏低"
+    degraded = [q.name for q in core if q.status not in {"ok", "fresh_cache"}]
+    if degraded:
+        detail = "需关注：" + "、".join(degraded[:3])
+    else:
+        detail = "核心数据源正常或使用有效缓存"
+    return {
+        "data_confidence_score": score,
+        "data_confidence_label": label,
+        "data_confidence_detail": detail,
+    }
+
+
 class DashboardService:
     """看板服务：采集数据、计算指标、合并质量标签。"""
 
@@ -161,6 +195,7 @@ class DashboardService:
                 "status_detail": status_detail,
             }
         )
+        headline.update(summarize_source_confidence(qualities))
 
         return DashboardPayload(
             generated_at=now_iso(),

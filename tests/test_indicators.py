@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ashare_indicator_monitor.indicators import score_bucket, select_float_market_cap, select_market_amount
+from ashare_indicator_monitor.indicators import (
+    build_confirmation_matrix,
+    build_key_signals,
+    classify_market_phase,
+    score_bucket,
+    select_float_market_cap,
+    select_market_amount,
+)
+from ashare_indicator_monitor.models import ModuleScore, Signal
 from ashare_indicator_monitor.utils import bp_change, clamp, percentile_rank, zscore_latest
 
 
@@ -54,3 +62,56 @@ def test_select_float_market_cap_uses_complete_snapshot() -> None:
     cap, source = select_float_market_cap(snapshot_float_cap=8.0e13, snapshot_count=5200)
     assert cap == 8.0e13
     assert "流通市值" in source
+
+
+def _module(key: str, name: str, score: float) -> ModuleScore:
+    return ModuleScore(
+        key=key,
+        name=name,
+        weight=0.1,
+        raw_score=score,
+        contribution=score * 0.1,
+        signals=[Signal(f"{name}信号", score, "分", score, "高危" if score >= 75 else "观察", "测试信号", "测试源")],
+    )
+
+
+def test_confirmation_matrix_uses_heat_pressure_fragility_and_trend() -> None:
+    modules = [
+        _module("valuation_erp", "估值与ERP", 70),
+        _module("bond_pressure", "债券压制", 50),
+        _module("stock_bond_rs", "股债相对强弱", 80),
+        _module("breadth", "市场宽度", 40),
+        _module("leverage_turnover", "杠杆与成交", 65),
+        _module("trend", "趋势确认", 30),
+    ]
+
+    matrix = build_confirmation_matrix(modules)
+
+    assert [item["key"] for item in matrix] == ["heat", "pressure", "fragility", "confirmation"]
+    assert matrix[0]["score"] == 70
+    assert matrix[2]["score"] == 62.0
+
+
+def test_classify_market_phase_detects_defensive_stage() -> None:
+    modules = [
+        _module("valuation_erp", "估值与ERP", 80),
+        _module("bond_pressure", "债券压制", 65),
+        _module("stock_bond_rs", "股债相对强弱", 70),
+        _module("breadth", "市场宽度", 60),
+        _module("leverage_turnover", "杠杆与成交", 70),
+        _module("trend", "趋势确认", 70),
+    ]
+
+    phase = classify_market_phase(modules, total_score=78)
+
+    assert phase["market_phase"] == "顶部确认/防守阶段"
+    assert "降低 Beta" in phase["action_hint"]
+
+
+def test_build_key_signals_returns_high_risk_first() -> None:
+    modules = [_module("valuation_erp", "估值与ERP", 82), _module("trend", "趋势确认", 35)]
+
+    flags = build_key_signals(modules)
+
+    assert flags[0].startswith("估值与ERP")
+    assert "风险分 82.0" in flags[0]

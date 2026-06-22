@@ -28,7 +28,9 @@
           <div>
             <h2 id="scoreStatus">加载中</h2>
             <p id="scoreDetail">正在拉取实时数据与缓存校验。</p>
-            <p class="muted">评分越高，顶部风险越高；不是交易指令，请结合仓位和风控。</p>
+            <p id="phaseDetail" class="phase-detail">等待阶段研判。</p>
+            <p id="actionHint" class="action-hint">等待风控动作提示。</p>
+            <p id="modelVersion" class="muted">评分越高，顶部风险越高；不是交易指令，请结合仓位和风控。</p>
           </div>
         </article>
 
@@ -52,6 +54,11 @@
           <strong id="financingRatio">--</strong>
           <small id="financingSource">融资杠杆拥挤度</small>
         </article>
+        <article class="metric-card">
+          <span>数据置信度</span>
+          <strong id="dataConfidence">--</strong>
+          <small id="dataConfidenceSource">按核心数据源质量折算</small>
+        </article>
       </section>
 
       <section id="warnings" class="warnings hidden"></section>
@@ -62,6 +69,14 @@
           <p>参考 demo 的“红旗信号”设计，优先暴露高风险单项。</p>
         </div>
         <ul id="redFlags"></ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>顶部确认矩阵</h2>
+          <p>参考最新建议，把“热度—压制—脆弱—确认”拆开看，避免只看单一总分。</p>
+        </div>
+        <div id="confirmationMatrix" class="confirmation-grid"></div>
       </section>
 
       <section class="panel">
