@@ -11,6 +11,7 @@ from typing import Any
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
 WEB_DIR = ROOT_DIR / "web"
+FALLBACK_DASHBOARD = WEB_DIR / "dashboard.json"
 
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -45,15 +46,33 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_fallback_payload(error: Exception) -> dict[str, Any]:
+    """实时生成失败时读取随仓库提交的最近快照，确保网页仍可发布。"""
+
+    if not FALLBACK_DASHBOARD.exists():
+        raise RuntimeError(f"实时生成失败且缺少兜底快照：{FALLBACK_DASHBOARD}") from error
+    payload = json.loads(FALLBACK_DASHBOARD.read_text(encoding="utf-8"))
+    warnings = list(payload.get("warnings") or [])
+    warnings.insert(0, f"本次线上实时生成失败，已使用随仓库发布的最近快照；错误摘要：{error}")
+    payload["warnings"] = warnings
+    return payload
+
+
 def build_static_site(output_dir: Path, force: bool = True) -> dict[str, Any]:
     """生成 GitHub Pages 可直接托管的静态网页产物。"""
 
-    service = DashboardService()
-    payload = service.get_dashboard(force=force)
+    fallback_used = False
+    try:
+        service = DashboardService()
+        payload = service.get_dashboard(force=force)
+    except Exception as exc:  # noqa: BLE001 - 静态站点必须优先保证可访问，再明确标注降级原因
+        fallback_used = True
+        payload = load_fallback_payload(exc)
     payload["deployment"] = {
         "mode": "github_pages_static",
         "schedule": "Asia/Shanghai 08:45, 09:15",
-        "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照。",
+        "fallback_used": fallback_used,
+        "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照；若实时生成失败，会使用随仓库提交的最近快照并在风险提示中标注。",
     }
 
     prepare_output_dir(output_dir)
