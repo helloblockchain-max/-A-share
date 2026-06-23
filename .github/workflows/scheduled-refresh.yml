@@ -1,0 +1,38 @@
+name: 定时刷新 A股指标
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub Actions 使用 UTC；北京时间 08:45/09:15 分别对应 UTC 00:45/01:15。
+    - cron: "45 0 * * *"
+    - cron: "15 1 * * *"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
+
+      - name: 执行定时刷新
+        env:
+          DEPLOY_URL: ${{ secrets.ASHARE_MONITOR_DEPLOY_URL }}
+          PYTHONIOENCODING: utf-8
+        run: |
+          if [ -n "$DEPLOY_URL" ]; then
+            curl -fsS "$DEPLOY_URL/api/dashboard?force=true"
+          else
+            python -m ashare_indicator_monitor.service --once
+          fi

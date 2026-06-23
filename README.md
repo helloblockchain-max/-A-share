@@ -15,6 +15,25 @@ uvicorn ashare_indicator_monitor.app:app --reload --host 127.0.0.1 --port 8000
 http://127.0.0.1:8000
 ```
 
+## 定时更新
+
+服务启动后会按北京时间每天自动强制刷新两次数据：
+
+- 08:45
+- 09:15
+
+可通过环境变量调整：
+
+```powershell
+$env:ASHARE_MONITOR_SCHEDULE_TIMES="08:45,09:15"
+$env:ASHARE_MONITOR_SCHEDULE_TIMEZONE="Asia/Shanghai"
+$env:ASHARE_MONITOR_SCHEDULE_ENABLED="1"
+```
+
+健康检查接口 `http://127.0.0.1:8000/api/health` 会返回下一次定时刷新时间和最近一次执行状态。
+
+仓库内也提供 GitHub Actions 定时任务：北京时间 08:45、09:15 触发。若在仓库 Secrets 中配置 `ASHARE_MONITOR_DEPLOY_URL`，Actions 会请求已部署服务的 `/api/dashboard?force=true`；否则会在 Actions 环境中执行一次本地数据拉取校验。
+
 ## 最新迭代：v2.1 确认矩阵版
 
 本版吸收 ChatGPT demo 中“不要只看单一总分，要看顶部链条是否共振”的建议，在原六大模块基础上新增：
