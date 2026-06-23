@@ -390,6 +390,7 @@ class PublicDataProvider:
             "https://48.push2.eastmoney.com/api/qt/clist/get",
         ]
         time_budget_seconds = int(os.getenv("ASHARE_MONITOR_SNAPSHOT_TIME_BUDGET_SECONDS", "120"))
+        page_retries = int(os.getenv("ASHARE_MONITOR_SNAPSHOT_PAGE_RETRIES", "5"))
 
         def fetcher() -> pd.DataFrame:
             fields = (
@@ -418,19 +419,23 @@ class PublicDataProvider:
                     "fs": fs,
                     "fields": fields,
                 }
-                last_error: Exception | None = None
                 payload: dict | None = None
-                for endpoint in endpoint_urls:
-                    try:
-                        resp = self.session.get(endpoint, params=params, timeout=5)
-                        resp.raise_for_status()
-                        payload = resp.json()
+                last_error: Exception | None = None
+                for attempt in range(page_retries):
+                    for endpoint in endpoint_urls:
+                        try:
+                            resp = self.session.get(endpoint, params=params, timeout=10)
+                            resp.raise_for_status()
+                            payload = resp.json()
+                            break
+                        except Exception as exc:  # noqa: BLE001 - 多 endpoint 探测，记录最后错误
+                            last_error = exc
+                            time.sleep(0.08)
+                    if payload is not None:
                         break
-                    except Exception as exc:  # noqa: BLE001 - 多 endpoint 探测，记录最后错误
-                        last_error = exc
-                        time.sleep(0.05)
+                    time.sleep(min(2.0, 0.4 * (attempt + 1)))
                 if payload is None:
-                    raise RuntimeError(f"东方财富全A快照第 {page} 页请求失败：{last_error}")
+                    raise RuntimeError(f"东方财富全A快照第 {page} 页重试 {page_retries} 次后仍失败：{last_error}")
                 diff = ((payload.get("data") or {}).get("diff") or [])
                 rows.extend(diff)
                 if len(diff) < page_size:
@@ -438,7 +443,7 @@ class PublicDataProvider:
                 page += 1
                 if page > 80:
                     break
-                time.sleep(0.05)
+                time.sleep(0.18)
             if not rows:
                 raise RuntimeError("东方财富全A快照返回空")
             df = pd.DataFrame(rows)
