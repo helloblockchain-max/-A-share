@@ -46,6 +46,18 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def public_fallback_warning(error: Exception) -> str:
+    """把构建异常转换为适合网页展示的短提示，避免长 URL/堆栈污染页面。"""
+
+    text = str(error)
+    if "东方财富全A快照" in text or "push2.eastmoney" in text or "clist/get" in text:
+        return (
+            "GitHub Actions 环境临时无法访问东方财富全A快照，本次使用最近快照继续发布；"
+            "宽度、成交额、流通市值相关指标请结合数据源状态核对。"
+        )
+    return "GitHub Actions 本次实时生成遇到公开数据源网络异常，已使用最近快照继续发布；请等待下一次自动更新。"
+
+
 def load_fallback_payload(error: Exception) -> dict[str, Any]:
     """实时生成失败时读取随仓库提交的最近快照，确保网页仍可发布。"""
 
@@ -53,7 +65,7 @@ def load_fallback_payload(error: Exception) -> dict[str, Any]:
         raise RuntimeError(f"实时生成失败且缺少兜底快照：{FALLBACK_DASHBOARD}") from error
     payload = json.loads(FALLBACK_DASHBOARD.read_text(encoding="utf-8"))
     warnings = list(payload.get("warnings") or [])
-    warnings.insert(0, f"本次线上实时生成失败，已使用随仓库发布的最近快照；错误摘要：{error}")
+    warnings.insert(0, public_fallback_warning(error))
     payload["warnings"] = warnings
     return payload
 
@@ -62,17 +74,21 @@ def build_static_site(output_dir: Path, force: bool = True) -> dict[str, Any]:
     """生成 GitHub Pages 可直接托管的静态网页产物。"""
 
     fallback_used = False
+    build_error_detail = None
     try:
         service = DashboardService()
         payload = service.get_dashboard(force=force)
     except Exception as exc:  # noqa: BLE001 - 静态站点必须优先保证可访问，再明确标注降级原因
         fallback_used = True
+        build_error_detail = str(exc)[:1200]
         payload = load_fallback_payload(exc)
     payload["deployment"] = {
         "mode": "github_pages_static",
         "schedule": "Asia/Shanghai 08:45, 09:15",
         "fallback_used": fallback_used,
-        "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照；若实时生成失败，会使用随仓库提交的最近快照并在风险提示中标注。",
+        "build_error_summary": public_fallback_warning(Exception(build_error_detail)) if fallback_used else None,
+        "build_error_detail": build_error_detail,
+        "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照；若实时生成失败，会使用随仓库提交的最近快照并在风险提示中给出短提示。",
     }
 
     prepare_output_dir(output_dir)

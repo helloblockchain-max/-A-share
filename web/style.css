@@ -337,6 +337,11 @@ button:disabled {
   margin-bottom: 0;
 }
 
+.warnings li {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
 .hidden {
   display: none;
 }
