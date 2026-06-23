@@ -213,18 +213,19 @@ function renderSources(sources) {
   renderSourceSummary(sources);
   elements.sourceQuality.innerHTML = (sources || [])
     .map((s) => {
-      const link = s.url && !s.url.startsWith("local://") ? `<a href="${s.url}" target="_blank" rel="noreferrer">打开来源</a>` : "本地探测";
+      const safeUrl = escapeHtml(s.url || "");
+      const link = s.url && !s.url.startsWith("local://") ? `<a href="${safeUrl}" target="_blank" rel="noreferrer">打开来源</a>` : "本地探测";
       return `
         <article class="source-card">
           <div class="source-head">
-            <h3>${s.name}</h3>
-            <span class="pill ${s.status}">${statusLabel(s.status)}</span>
+            <h3>${escapeHtml(s.name || "--")}</h3>
+            <span class="pill ${escapeHtml(s.status || "")}">${escapeHtml(statusLabel(s.status))}</span>
           </div>
           <dl>
-            <div><dt>数据日期</dt><dd>${s.as_of || "--"}</dd></div>
+            <div><dt>数据日期</dt><dd>${escapeHtml(s.as_of || "--")}</dd></div>
             <div><dt>行数</dt><dd>${fmt.format(s.row_count ?? 0)}</dd></div>
           </dl>
-          <p>${s.message || ""}</p>
+          <p>${escapeHtml(compactWarning(s.message || ""))}</p>
           <p class="source-link">${link}</p>
         </article>
       `;
