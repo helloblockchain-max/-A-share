@@ -48,6 +48,23 @@ function statusLabel(status) {
   return labels[status] || status || "--";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function compactWarning(value) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.includes("HTTPSConnectionPool") || text.includes("push2.eastmoney") || text.includes("clist/get")) {
+    return "GitHub Actions 环境临时无法访问东方财富全A快照，本次使用最近快照继续发布；宽度、成交额、流通市值相关指标请结合数据源状态核对。";
+  }
+  return text.length > 180 ? `${text.slice(0, 180)}…` : text;
+}
+
 function isStaticFirstHost() {
   return window.location.protocol === "file:" || STATIC_HOST_RE.test(window.location.hostname);
 }
@@ -120,7 +137,9 @@ function renderWarnings(warnings) {
     return;
   }
   elements.warnings.classList.remove("hidden");
-  elements.warnings.innerHTML = `<strong>风险提示</strong><ul>${warnings.map((w) => `<li>${w}</li>`).join("")}</ul>`;
+  elements.warnings.innerHTML = `<strong>风险提示</strong><ul>${warnings
+    .map((w) => `<li>${escapeHtml(compactWarning(w))}</li>`)
+    .join("")}</ul>`;
 }
 
 function renderRedFlags(flags) {
