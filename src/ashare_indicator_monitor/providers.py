@@ -380,13 +380,16 @@ class PublicDataProvider:
     def fetch_a_share_snapshot(self) -> SourceFrame:
         """东方财富全 A 实时快照，用于市场宽度与成交。"""
 
-        url = "https://82.push2.eastmoney.com/api/qt/clist/get"
+        url = "https://push2.eastmoney.com/api/qt/clist/get"
         endpoint_urls = [
+            # 主域在本地与 GitHub Pages 构建链路上更稳定，优先使用；
+            # 数字子域作为备用，避免单点失败。
+            "https://push2.eastmoney.com/api/qt/clist/get",
+            "https://33.push2.eastmoney.com/api/qt/clist/get",
             "https://82.push2.eastmoney.com/api/qt/clist/get",
             "https://48.push2.eastmoney.com/api/qt/clist/get",
-            "https://33.push2.eastmoney.com/api/qt/clist/get",
-            "https://push2.eastmoney.com/api/qt/clist/get",
         ]
+        time_budget_seconds = int(os.getenv("ASHARE_MONITOR_SNAPSHOT_TIME_BUDGET_SECONDS", "120"))
 
         def fetcher() -> pd.DataFrame:
             fields = (
@@ -401,8 +404,8 @@ class PublicDataProvider:
             # 会导致分页提前停止，进而把全市场成交额低估为首页成交额。
             page_size = 100
             while True:
-                if time.time() - started_at > 10:
-                    raise RuntimeError("东方财富全A快照分页超过10秒时间预算")
+                if time.time() - started_at > time_budget_seconds:
+                    raise RuntimeError(f"东方财富全A快照分页超过{time_budget_seconds}秒时间预算")
                 params = {
                     "pn": str(page),
                     "pz": str(page_size),
@@ -435,7 +438,7 @@ class PublicDataProvider:
                 page += 1
                 if page > 80:
                     break
-                time.sleep(0.12)
+                time.sleep(0.05)
             if not rows:
                 raise RuntimeError("东方财富全A快照返回空")
             df = pd.DataFrame(rows)

@@ -53,6 +53,6 @@ def test_fetch_a_share_snapshot_paginates_with_100_row_limit(tmp_path) -> None:
 
     assert frame.quality.row_count == 120
     assert len(frame.data) == 120
+    assert fake.calls[0][0] == "https://push2.eastmoney.com/api/qt/clist/get"
     assert fake.calls[0][1]["pz"] == "100"
     assert fake.calls[1][1]["pn"] == "2"
-
