@@ -21,6 +21,7 @@ const elements = {
   dataConfidenceSource: document.getElementById("dataConfidenceSource"),
   moduleBars: document.getElementById("moduleBars"),
   signalsTable: document.getElementById("signalsTable"),
+  sourceSummary: document.getElementById("sourceSummary"),
   sourceQuality: document.getElementById("sourceQuality"),
   warnings: document.getElementById("warnings"),
   redFlags: document.getElementById("redFlags"),
@@ -32,6 +33,18 @@ function scoreColor(score) {
   if (score >= 60) return "#fdb022";
   if (score >= 40) return "#f7c948";
   return "#32d583";
+}
+
+function statusLabel(status) {
+  const labels = {
+    ok: "实时正常",
+    fresh_cache: "有效缓存",
+    stale: "日期偏旧",
+    stale_cache: "过期缓存",
+    not_available: "不可用",
+    error: "错误",
+  };
+  return labels[status] || status || "--";
 }
 
 function renderHeadline(payload) {
@@ -68,7 +81,7 @@ function renderWarnings(warnings) {
 
 function renderRedFlags(flags) {
   elements.redFlags.innerHTML = (flags || [])
-    .map((flag) => `<li>${flag}</li>`)
+    .map((flag, index) => `<li><span>${String(index + 1).padStart(2, "0")}</span>${flag}</li>`)
     .join("");
 }
 
@@ -134,19 +147,48 @@ function renderSignals(modules) {
 }
 
 function renderSources(sources) {
+  renderSourceSummary(sources);
   elements.sourceQuality.innerHTML = (sources || [])
     .map((s) => {
       const link = s.url && !s.url.startsWith("local://") ? `<a href="${s.url}" target="_blank" rel="noreferrer">打开来源</a>` : "本地探测";
       return `
         <article class="source-card">
-          <h3>${s.name}</h3>
-          <span class="pill ${s.status}">${s.status}</span>
-          <p>数据日期：${s.as_of || "--"}｜拉取：${s.fetched_at || "--"}｜行数：${s.row_count ?? 0}</p>
+          <div class="source-head">
+            <h3>${s.name}</h3>
+            <span class="pill ${s.status}">${statusLabel(s.status)}</span>
+          </div>
+          <dl>
+            <div><dt>数据日期</dt><dd>${s.as_of || "--"}</dd></div>
+            <div><dt>行数</dt><dd>${fmt.format(s.row_count ?? 0)}</dd></div>
+          </dl>
           <p>${s.message || ""}</p>
-          <p>${link}</p>
+          <p class="source-link">${link}</p>
         </article>
       `;
     })
+    .join("");
+}
+
+function renderSourceSummary(sources) {
+  const list = sources || [];
+  const coreSources = list.filter((s) => !String(s.name || "").toLowerCase().includes("xtquant") && !String(s.name || "").toLowerCase().includes("qmt"));
+  const okCount = coreSources.filter((s) => ["ok", "fresh_cache"].includes(s.status)).length;
+  const degradedCount = coreSources.filter((s) => !["ok", "fresh_cache"].includes(s.status)).length;
+  const latestDate = coreSources.map((s) => s.as_of).filter(Boolean).sort().at(-1) || "--";
+  const cacheCount = list.filter((s) => s.from_cache).length;
+  elements.sourceSummary.innerHTML = [
+    { label: "正常/有效缓存", value: okCount, hint: "可直接纳入当前评分" },
+    { label: "核心需核对", value: degradedCount, hint: "不含可选 QMT 探测" },
+    { label: "最新数据日", value: latestDate, hint: "来自核心数据源 as_of 最大值" },
+    { label: "缓存来源数", value: cacheCount, hint: "缓存不等于错误，但需看是否过期" },
+  ]
+    .map((item) => `
+      <article class="summary-card">
+        <span>${item.label}</span>
+        <strong>${item.value}</strong>
+        <small>${item.hint}</small>
+      </article>
+    `)
     .join("");
 }
 
@@ -179,7 +221,13 @@ function drawLineChart(canvasId, series, lines) {
   const x = (i) => padding.left + (i / (series.length - 1)) * (width - padding.left - padding.right);
   const y = (v) => padding.top + (1 - (v - min) / span) * (height - padding.top - padding.bottom);
 
-  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+  gradient.addColorStop(0, "rgba(92,169,255,0.12)");
+  gradient.addColorStop(1, "rgba(92,169,255,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(padding.left, padding.top, width - padding.left - padding.right, height - padding.top - padding.bottom);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.10)";
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i += 1) {
     const yy = padding.top + (i / 4) * (height - padding.top - padding.bottom);
@@ -199,6 +247,8 @@ function drawLineChart(canvasId, series, lines) {
   lines.forEach((line) => {
     ctx.strokeStyle = line.color;
     ctx.lineWidth = line.width || 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.beginPath();
     let started = false;
     series.forEach((d, i) => {
