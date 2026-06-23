@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A股顶部指标检测网页看板</title>
+    <link rel="stylesheet" href="static/style.css?v=2.3" />
+  </head>
+  <body>
+    <div class="aurora aurora-blue"></div>
+    <div class="aurora aurora-red"></div>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">A股宏观指标 · 实时监控</p>
+        <h1>A股顶部概率评分看板</h1>
+        <p class="subtitle">综合估值 ERP、债券压制、股债相对强弱、市场宽度、两融成交和趋势确认。</p>
+        <div class="hero-meta">
+          <span>确认矩阵 v2.1</span>
+          <span>每日 08:45 / 09:15 自动发布</span>
+          <span>GitHub Pages 快照 + 数据源校验</span>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button id="refreshBtn">立即刷新</button>
+        <span id="lastUpdated">等待加载</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="score-grid">
+        <article class="score-card feature-card">
+          <div class="score-ring" id="scoreRing">
+            <span id="totalScore">--</span>
+          </div>
+          <div>
+            <h2 id="scoreStatus">加载中</h2>
+            <p id="scoreDetail">正在拉取实时数据与缓存校验。</p>
+            <p id="phaseDetail" class="phase-detail">等待阶段研判。</p>
+            <p id="actionHint" class="action-hint">等待风控动作提示。</p>
+            <p id="modelVersion" class="muted">评分越高，顶部风险越高；不是交易指令，请结合仓位和风控。</p>
+          </div>
+        </article>
+
+        <article class="metric-card">
+          <span>沪深300 ERP</span>
+          <strong id="erpValue">--</strong>
+          <small>盈利收益率 - 10Y国债收益率</small>
+        </article>
+        <article class="metric-card">
+          <span>10Y国债收益率</span>
+          <strong id="tenYield">--</strong>
+          <small>中国债券信息网</small>
+        </article>
+        <article class="metric-card">
+          <span>全A上涨家数占比</span>
+          <strong id="advanceRatio">--</strong>
+          <small>东方财富全A快照</small>
+        </article>
+        <article class="metric-card">
+          <span>融资余额/流通市值</span>
+          <strong id="financingRatio">--</strong>
+          <small id="financingSource">融资杠杆拥挤度</small>
+        </article>
+        <article class="metric-card">
+          <span>数据置信度</span>
+          <strong id="dataConfidence">--</strong>
+          <small id="dataConfidenceSource">按核心数据源质量折算</small>
+        </article>
+      </section>
+
+      <section id="warnings" class="warnings hidden"></section>
+
+      <section class="panel redflags panel-accent">
+        <div class="panel-title">
+          <h2>当前最重要的信号</h2>
+          <p>参考 demo 的“红旗信号”设计，优先暴露高风险单项。</p>
+        </div>
+        <ul id="redFlags"></ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>顶部确认矩阵</h2>
+          <p>参考最新建议，把“热度—压制—脆弱—确认”拆开看，避免只看单一总分。</p>
+        </div>
+        <div id="confirmationMatrix" class="confirmation-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>模块贡献</h2>
+          <p>权重来自研究框架；贡献=模块风险分×权重。</p>
+        </div>
+        <div id="moduleBars" class="module-bars"></div>
+      </section>
+
+      <section class="charts">
+        <article class="panel chart-card">
+          <div class="panel-title">
+            <h2>沪深300趋势</h2>
+            <p>收盘价、20日线、60日线、120日线</p>
+          </div>
+          <div class="legend-row">
+            <span><i style="background:#5ca9ff"></i>收盘价</span>
+            <span><i style="background:#fdb022"></i>MA20</span>
+            <span><i style="background:#32d583"></i>MA60</span>
+            <span><i style="background:#9b8cff"></i>MA120</span>
+          </div>
+          <canvas id="trendChart" height="240"></canvas>
+        </article>
+        <article class="panel chart-card">
+          <div class="panel-title">
+            <h2>股债相对强弱</h2>
+            <p>沪深300 / 中债国债财富指数</p>
+          </div>
+          <div class="legend-row">
+            <span><i style="background:#9b8cff"></i>比值</span>
+            <span><i style="background:#fdb022"></i>MA20</span>
+            <span><i style="background:#32d583"></i>MA60</span>
+          </div>
+          <canvas id="rsChart" height="240"></canvas>
+        </article>
+        <article class="panel chart-card">
+          <div class="panel-title">
+            <h2>ERP</h2>
+            <p>沪深300盈利收益率 - 10Y国债</p>
+          </div>
+          <div class="legend-row">
+            <span><i style="background:#fdb022"></i>ERP</span>
+          </div>
+          <canvas id="erpChart" height="240"></canvas>
+        </article>
+        <article class="panel chart-card">
+          <div class="panel-title">
+            <h2>融资余额/流通市值</h2>
+            <p>历史占比曲线使用当前全A流通市值作静态分母</p>
+          </div>
+          <div class="legend-row">
+            <span><i style="background:#f97066"></i>融资余额/流通市值</span>
+          </div>
+          <canvas id="marginChart" height="240"></canvas>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>核心信号明细</h2>
+          <p>每条信号都显示来源、数值、风险分和解释。</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>模块</th>
+                <th>信号</th>
+                <th>数值</th>
+                <th>风险分</th>
+                <th>状态</th>
+                <th>解释</th>
+                <th>来源</th>
+              </tr>
+            </thead>
+            <tbody id="signalsTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>数据可靠性</h2>
+          <p>核对来源、日期、状态和缓存降级；生产环境建议替换为授权数据源。</p>
+        </div>
+        <div id="sourceSummary" class="source-summary"></div>
+        <div id="sourceQuality" class="source-quality"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>本看板用于量化监控与风险提示，不构成投资建议。生产部署建议接入正式授权数据源。</p>
+    </footer>
+
+    <script src="static/app.js?v=2.3"></script>
+  </body>
+</html>
