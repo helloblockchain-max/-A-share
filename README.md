@@ -6,10 +6,10 @@
 
 - GitHub Pages 地址：<https://helloblockchain-max.github.io/-A-share/>
 - 自动发布时间：北京时间每天 **08:45**、**09:15**。
-- 发布方式：GitHub Actions 定时拉取公开数据源，生成 `dashboard.json` 静态快照，再部署到 GitHub Pages。
+- 发布方式：GitHub Actions 定时拉取公开数据源，生成 `dashboard.json` 静态快照，并推送到 `gh-pages` 分支供 GitHub Pages 发布。
 - 可访问性兜底：仓库内保留 `web/dashboard.json` 最近快照；若 GitHub Actions 环境临时无法访问某个公开数据源，仍会发布该快照并在页面“风险提示”中标注降级原因，避免网页空白。
 
-首次启用时，请在 GitHub 仓库页面进入 **Settings → Pages → Build and deployment → Source**，选择 **GitHub Actions**。之后等待 Actions 首次运行完成即可访问网页。
+首次启用时，请在 GitHub 仓库页面进入 **Settings → Pages → Build and deployment → Source**，选择 **Deploy from a branch**，分支选择 **gh-pages**，目录选择 **/(root)**。之后等待 Pages 首次发布完成即可访问网页。
 
 ## 本地快速启动
 
@@ -47,7 +47,7 @@ http://127.0.0.1:8765/
 - `workflow_dispatch`：可在 GitHub Actions 页面手动触发；
 - `schedule`：UTC 00:45、01:15，对应北京时间 08:45、09:15。
 
-工作流会执行测试、生成静态站点、上传 Pages artifact 并部署到 GitHub Pages。
+工作流会执行测试、生成静态站点，并把产物发布到 `gh-pages` 分支；GitHub Pages 只需要绑定该分支根目录即可。
 
 ## 指标版本：v2.1 确认矩阵
 

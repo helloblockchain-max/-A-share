@@ -11,22 +11,22 @@ on:
     - cron: "15 1 * * *"
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: github-pages
+  group: gh-pages
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: 构建静态看板
+  build-and-publish:
+    name: 构建并发布静态看板
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 设置 Python
         uses: actions/setup-python@v5
@@ -57,22 +57,28 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: python scripts/build_static_site.py --output dist
 
-      - name: 配置 GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: 发布到 gh-pages 分支
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: 上传网页产物
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: dist
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:gh-pages
+            git worktree add gh-pages-worktree gh-pages
+          else
+            git worktree add --detach gh-pages-worktree
+            git -C gh-pages-worktree checkout --orphan gh-pages
+          fi
 
-  deploy:
-    name: 部署到 GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: 发布网页
-        id: deployment
-        uses: actions/deploy-pages@v4
+          find gh-pages-worktree -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a dist/. gh-pages-worktree/
+          git -C gh-pages-worktree add -A
+
+          if [ -n "$(git -C gh-pages-worktree status --porcelain)" ]; then
+            git -C gh-pages-worktree commit -m "deploy: 更新A股指标网页快照"
+            git -C gh-pages-worktree push origin gh-pages
+          else
+            echo "静态网页无变化，跳过发布提交。"
+          fi
