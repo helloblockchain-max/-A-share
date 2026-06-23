@@ -1,16 +1,29 @@
-name: 定时刷新 A股指标
+name: 定时发布 A股指标网页
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
   schedule:
     # GitHub Actions 使用 UTC；北京时间 08:45/09:15 分别对应 UTC 00:45/01:15。
     - cron: "45 0 * * *"
     - cron: "15 1 * * *"
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
 jobs:
-  refresh:
+  build:
+    name: 构建静态看板
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -21,18 +34,45 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: 恢复数据缓存
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ashare-data-cache-${{ github.run_id }}
+          restore-keys: |
+            ashare-data-cache-
+
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .[test]
 
-      - name: 执行定时刷新
+      - name: 运行测试
         env:
-          DEPLOY_URL: ${{ secrets.ASHARE_MONITOR_DEPLOY_URL }}
           PYTHONIOENCODING: utf-8
-        run: |
-          if [ -n "$DEPLOY_URL" ]; then
-            curl -fsS "$DEPLOY_URL/api/dashboard?force=true"
-          else
-            python -m ashare_indicator_monitor.service --once
-          fi
+        run: python -m pytest
+
+      - name: 生成网页快照
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python scripts/build_static_site.py --output dist
+
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传网页产物
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    name: 部署到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布网页
+        id: deployment
+        uses: actions/deploy-pages@v4

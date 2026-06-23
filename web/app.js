@@ -1,6 +1,7 @@
 const fmt = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
 const pct = (v) => (Number.isFinite(v) ? `${fmt.format(v * 100)}%` : "--");
 const val = (v, suffix = "") => (Number.isFinite(v) ? `${fmt.format(v)}${suffix}` : "--");
+const STATIC_HOST_RE = /(^|\.)github\.io$/i;
 
 const elements = {
   refreshBtn: document.getElementById("refreshBtn"),
@@ -47,8 +48,51 @@ function statusLabel(status) {
   return labels[status] || status || "--";
 }
 
-function renderHeadline(payload) {
+function isStaticFirstHost() {
+  return window.location.protocol === "file:" || STATIC_HOST_RE.test(window.location.hostname);
+}
+
+function dashboardSnapshotUrl(force = false) {
+  const url = new URL("dashboard.json", window.location.href);
+  if (force) url.searchParams.set("_", Date.now().toString());
+  return url.toString();
+}
+
+async function readJson(url, options = {}) {
+  const response = await fetch(url, options);
+  if (!response.ok) throw new Error(`返回 ${response.status}`);
+  return response.json();
+}
+
+async function fetchDashboardPayload(force = false) {
+  const errors = [];
+  const preferStatic = isStaticFirstHost();
+  if (!preferStatic) {
+    try {
+      const payload = await readJson(`/api/dashboard${force ? "?force=true" : ""}`, {
+        cache: force ? "reload" : "default",
+      });
+      return { payload, mode: "api" };
+    } catch (error) {
+      errors.push(`实时接口不可用：${error.message}`);
+    }
+  }
+
+  try {
+    const payload = await readJson(dashboardSnapshotUrl(force), {
+      cache: force ? "reload" : "default",
+    });
+    return { payload, mode: "static" };
+  } catch (error) {
+    errors.push(`静态快照不可用：${error.message}`);
+  }
+
+  throw new Error(errors.join("；"));
+}
+
+function renderHeadline(payload, mode = "api") {
   const headline = payload.headline || {};
+  const modeText = mode === "static" ? "GitHub Pages 快照" : "实时接口";
   elements.totalScore.textContent = fmt.format(payload.total_score);
   elements.scoreRing.style.setProperty("--score", `${payload.total_score * 3.6}deg`);
   elements.scoreRing.style.background = `radial-gradient(circle, var(--panel) 58%, transparent 60%), conic-gradient(${scoreColor(payload.total_score)} ${payload.total_score * 3.6}deg, rgba(255,255,255,0.10) 0)`;
@@ -66,7 +110,7 @@ function renderHeadline(payload) {
     ? `${fmt.format(headline.data_confidence_score)}分`
     : "--";
   elements.dataConfidenceSource.textContent = headline.data_confidence_detail || "按核心数据源质量折算";
-  elements.lastUpdated.textContent = `生成：${payload.generated_at || "--"}｜数据：${payload.as_of || "--"}`;
+  elements.lastUpdated.textContent = `生成：${payload.generated_at || "--"}｜数据：${payload.as_of || "--"}｜${modeText}`;
 }
 
 function renderWarnings(warnings) {
@@ -289,11 +333,10 @@ async function loadDashboard(force = false) {
   elements.refreshBtn.disabled = true;
   elements.refreshBtn.textContent = force ? "刷新中..." : "加载中...";
   try {
-    const response = await fetch(`/api/dashboard${force ? "?force=true" : ""}`);
-    if (!response.ok) throw new Error(`接口返回 ${response.status}`);
-    const payload = await response.json();
+    const { payload, mode } = await fetchDashboardPayload(force);
     state.lastPayload = payload;
-    renderHeadline(payload);
+    state.mode = mode;
+    renderHeadline(payload, mode);
     renderWarnings(payload.warnings);
     renderRedFlags(payload.headline?.red_flags || []);
     renderConfirmationMatrix(payload.headline?.confirmation_matrix || []);
@@ -306,12 +349,12 @@ async function loadDashboard(force = false) {
     elements.warnings.innerHTML = `<strong>加载失败</strong><p>${error.message}</p>`;
   } finally {
     elements.refreshBtn.disabled = false;
-    elements.refreshBtn.textContent = "立即刷新";
+    elements.refreshBtn.textContent = state.mode === "static" ? "重新读取快照" : "立即刷新";
   }
 }
 
 elements.refreshBtn.addEventListener("click", () => loadDashboard(true));
 window.addEventListener("resize", () => renderCharts(state.lastPayload?.charts || {}));
-const state = { lastPayload: null, timer: null };
+const state = { lastPayload: null, timer: null, mode: null };
 loadDashboard(false);
-state.timer = window.setInterval(() => loadDashboard(false), 60_000);
+state.timer = window.setInterval(() => loadDashboard(false), 5 * 60_000);

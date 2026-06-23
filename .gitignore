@@ -9,4 +9,5 @@ chatgpt_share.html
 chatgpt_share_decoded.txt
 research_extract_raw.txt
 research_long_*.md
-
+dist/
+dist-test/
