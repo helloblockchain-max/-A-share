@@ -74,20 +74,20 @@ def build_static_site(output_dir: Path, force: bool = True) -> dict[str, Any]:
     """生成 GitHub Pages 可直接托管的静态网页产物。"""
 
     fallback_used = False
-    build_error_detail = None
+    build_error_class = None
     try:
         service = DashboardService()
         payload = service.get_dashboard(force=force)
     except Exception as exc:  # noqa: BLE001 - 静态站点必须优先保证可访问，再明确标注降级原因
         fallback_used = True
-        build_error_detail = str(exc)[:1200]
+        build_error_class = type(exc).__name__
         payload = load_fallback_payload(exc)
     payload["deployment"] = {
         "mode": "github_pages_static",
         "schedule": "Asia/Shanghai 08:45, 09:15",
         "fallback_used": fallback_used,
-        "build_error_summary": public_fallback_warning(Exception(build_error_detail)) if fallback_used else None,
-        "build_error_detail": build_error_detail,
+        "build_error_class": build_error_class,
+        "build_error_summary": payload["warnings"][0] if fallback_used and payload.get("warnings") else None,
         "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照；若实时生成失败，会使用随仓库提交的最近快照并在风险提示中给出短提示。",
     }
 
