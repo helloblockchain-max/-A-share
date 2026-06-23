@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-23T13:15:46+08:00",
+  "generated_at": "2026-06-23T13:20:15+08:00",
   "as_of": "2026-06-23",
   "total_score": 39.46,
   "status": "健康上涨",
@@ -9864,7 +9864,7 @@
       "name": "中国债券信息网收益率曲线（分段）",
       "url": "https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/historyQuery",
       "as_of": "2026-06-22",
-      "fetched_at": "2026-06-23T13:15:13+08:00",
+      "fetched_at": "2026-06-23T13:19:35+08:00",
       "status": "fresh_cache",
       "message": "按不超过一年窗口分段拉取后合并；使用有效期内缓存，避免重复请求数据源。",
       "from_cache": true,
@@ -9904,7 +9904,7 @@
       "name": "xtquant/QMT 行情探测",
       "url": "local://xtquant",
       "as_of": null,
-      "fetched_at": "2026-06-23T13:15:46+08:00",
+      "fetched_at": "2026-06-23T13:20:15+08:00",
       "status": "ok",
       "message": "检测到 QMT 行情端口：[58610]",
       "from_cache": false,
@@ -9919,8 +9919,8 @@
     "mode": "github_pages_static",
     "schedule": "Asia/Shanghai 08:45, 09:15",
     "fallback_used": true,
+    "build_error_class": "RuntimeError",
     "build_error_summary": "GitHub Actions 环境临时无法访问东方财富全A快照，本次使用最近快照继续发布；宽度、成交额、流通市值相关指标请结合数据源状态核对。",
-    "build_error_detail": "东方财富全A快照分页超过10秒时间预算",
     "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照；若实时生成失败，会使用随仓库提交的最近快照并在风险提示中给出短提示。"
   }
 }
