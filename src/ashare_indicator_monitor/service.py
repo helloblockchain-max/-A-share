@@ -149,7 +149,8 @@ class DashboardService:
         bond_wealth = self.provider.fetch_treasury_wealth_index("0-10Y")
         qualities.append(self._mark_staleness(bond_wealth.quality, max_days=10))
         margin = self.provider.fetch_margin()
-        margin.quality.message += "；该链路为第三方聚合源，生产环境建议接入上交所/深交所或 Tushare Pro 官方链路。"
+        if "金十" in margin.quality.name or "jin10" in margin.quality.url.lower():
+            margin.quality.message += "；该链路为第三方聚合源，生产环境建议接入上交所/深交所或 Tushare Pro 官方链路。"
         qualities.append(self._mark_staleness(margin.quality, max_days=10))
         snapshot = self.provider.fetch_a_share_snapshot()
         qualities.append(self._mark_staleness(snapshot.quality, max_days=3))

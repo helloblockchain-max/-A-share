@@ -16,6 +16,7 @@ FALLBACK_DASHBOARD = WEB_DIR / "dashboard.json"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from ashare_indicator_monitor.providers import PublicDataProvider  # noqa: E402
 from ashare_indicator_monitor.service import DashboardService  # noqa: E402
 
 
@@ -70,13 +71,13 @@ def load_fallback_payload(error: Exception) -> dict[str, Any]:
     return payload
 
 
-def build_static_site(output_dir: Path, force: bool = True) -> dict[str, Any]:
+def build_static_site(output_dir: Path, force: bool = True, provider: PublicDataProvider | None = None) -> dict[str, Any]:
     """生成 GitHub Pages 可直接托管的静态网页产物。"""
 
     fallback_used = False
     build_error_class = None
     try:
-        service = DashboardService()
+        service = DashboardService(provider=provider)
         payload = service.get_dashboard(force=force)
     except Exception as exc:  # noqa: BLE001 - 静态站点必须优先保证可访问，再明确标注降级原因
         fallback_used = True
@@ -104,10 +105,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="构建 A股指标检测 GitHub Pages 静态网页")
     parser.add_argument("--output", default="dist", help="静态站点输出目录，默认 dist")
     parser.add_argument("--no-force", action="store_true", help="不强制刷新底层数据，仅用于本地快速调试")
+    parser.add_argument(
+        "--provider",
+        choices=["public", "xingyao"],
+        default="public",
+        help="数据源：public=公开源，xingyao=本地星耀数智 SDK 优先",
+    )
     args = parser.parse_args()
 
     output_dir = resolve_output_dir(args.output)
-    payload = build_static_site(output_dir=output_dir, force=not args.no_force)
+    provider: PublicDataProvider | None = None
+    if args.provider == "xingyao":
+        from ashare_indicator_monitor.xingyao_provider import XingyaoSdkProvider  # noqa: WPS433
+
+        provider = XingyaoSdkProvider()
+    payload = build_static_site(output_dir=output_dir, force=not args.no_force, provider=provider)
     summary = {
         "output": str(output_dir),
         "score": payload.get("total_score"),

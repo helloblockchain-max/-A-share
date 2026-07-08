@@ -203,8 +203,9 @@ def bond_pressure_module(data: IndicatorInput) -> tuple[ModuleScore, dict[str, A
 def _aligned_ratio(stock_df: pd.DataFrame, bond_df: pd.DataFrame) -> pd.DataFrame:
     stock = stock_df[["date", "close"]].copy()
     bond = bond_df[["date", "value"]].copy()
-    stock["date"] = pd.to_datetime(stock["date"], errors="coerce")
-    bond["date"] = pd.to_datetime(bond["date"], errors="coerce")
+    # pandas 3 对 merge_asof 的时间精度更严格，统一归一化到 datetime64[ns]。
+    stock["date"] = pd.to_datetime(stock["date"], errors="coerce").dt.normalize().astype("datetime64[ns]")
+    bond["date"] = pd.to_datetime(bond["date"], errors="coerce").dt.normalize().astype("datetime64[ns]")
     merged = pd.merge_asof(stock.sort_values("date"), bond.sort_values("date"), on="date", direction="backward", tolerance=pd.Timedelta(days=10))
     merged = merged.dropna(subset=["close", "value"])
     merged["ratio"] = merged["close"] / merged["value"]
@@ -314,10 +315,10 @@ def select_market_amount(snapshot_amount: float | None, snapshot_count: int | No
     snapshot_count = int(snapshot_count or 0)
     if snapshot_amount and snapshot_count >= 3500:
         if not index_amount or snapshot_amount >= index_amount * 0.75:
-            return snapshot_amount, "东方财富全A快照成交额"
+            return snapshot_amount, "全A快照成交额"
     if index_amount:
         return index_amount, "中证全指成交额（快照不完整时兜底）"
-    return snapshot_amount, "东方财富全A快照成交额（未能校验完整性）"
+    return snapshot_amount, "全A快照成交额（未能校验完整性）"
 
 
 def select_float_market_cap(snapshot_float_cap: float | None, snapshot_count: int | None) -> tuple[float | None, str]:
@@ -326,7 +327,7 @@ def select_float_market_cap(snapshot_float_cap: float | None, snapshot_count: in
     snapshot_float_cap = safe_float(snapshot_float_cap)
     snapshot_count = int(snapshot_count or 0)
     if snapshot_float_cap and snapshot_count >= 3500:
-        return snapshot_float_cap, "东方财富全A快照流通市值"
+        return snapshot_float_cap, "全A快照流通市值"
     return None, "全A快照不完整，未计算流通市值分母"
 
 
