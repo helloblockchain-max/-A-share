@@ -57,6 +57,38 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: python scripts/build_static_site.py --output dist
 
+      - name: 回写成功快照到 main
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pathlib
+          import shutil
+
+          payload = json.loads(pathlib.Path("dist/dashboard.json").read_text(encoding="utf-8"))
+          if payload.get("deployment", {}).get("fallback_used"):
+              print("本次使用兜底快照，不回写 main:web/dashboard.json。")
+              print(payload.get("deployment", {}).get("build_error_summary") or "无错误摘要")
+              pathlib.Path(".snapshot_updated").write_text("0", encoding="utf-8")
+          else:
+              shutil.copy2("dist/dashboard.json", "web/dashboard.json")
+              pathlib.Path(".snapshot_updated").write_text("1", encoding="utf-8")
+              print("实时快照生成成功，已准备回写 main:web/dashboard.json。")
+          PY
+
+          if [ "$(cat .snapshot_updated)" = "1" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/dashboard.json
+            if [ -n "$(git status --porcelain web/dashboard.json)" ]; then
+              git commit -m "data: 更新A股指标兜底快照 [skip ci]"
+              git push origin HEAD:main
+            else
+              echo "web/dashboard.json 无变化，跳过 main 回写。"
+            fi
+          fi
+
       - name: 发布到 gh-pages 分支
         shell: bash
         run: |

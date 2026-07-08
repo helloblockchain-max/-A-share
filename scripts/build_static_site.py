@@ -114,6 +114,8 @@ def main() -> None:
         "status": payload.get("status"),
         "as_of": payload.get("as_of"),
         "generated_at": payload.get("generated_at"),
+        "fallback_used": payload.get("deployment", {}).get("fallback_used"),
+        "build_error_summary": payload.get("deployment", {}).get("build_error_summary"),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
