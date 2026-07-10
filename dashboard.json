@@ -9911,14 +9911,15 @@
     }
   ],
   "warnings": [
+    "GitHub Actions 本次实时生成遇到公开数据源网络异常，已使用最近快照继续发布；请等待下一次自动更新。",
     "沪深300 PE 官方值与长序列值差异 22.9%，请核对估值口径（总股本/计算用股本/TTM）。"
   ],
   "deployment": {
     "mode": "github_pages_static",
     "schedule": "Asia/Shanghai 08:45, 09:15",
-    "fallback_used": false,
-    "build_error_class": null,
-    "build_error_summary": null,
+    "fallback_used": true,
+    "build_error_class": "RuntimeError",
+    "build_error_summary": "GitHub Actions 本次实时生成遇到公开数据源网络异常，已使用最近快照继续发布；请等待下一次自动更新。",
     "note": "该 JSON 由 GitHub Actions 定时生成，网页端只读取静态快照；若实时生成失败，会使用随仓库提交的最近快照并在风险提示中给出短提示。"
   }
 }
